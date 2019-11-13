@@ -43,6 +43,10 @@ export type GenerationOptions = CompilerOptions &
     rootPath?: string;
   };
 
+type OutFilesType = {
+  [fileName: string]: BasicGeneratedFile;
+};
+
 function toPath(uri: string): string {
   return URI.parse(uri).fsPath;
 }
@@ -99,9 +103,7 @@ export default function generate(
     const context = compileToIR(schema, document, options);
     const { generatedFiles, common } = generateFlowSource(context);
 
-    const outFiles: {
-      [fileName: string]: BasicGeneratedFile;
-    } = {};
+    const outFiles: OutFilesType = {};
 
     if (nextToSources) {
       generatedFiles.forEach(({ sourcePath, fileName, content }) => {
@@ -114,10 +116,19 @@ export default function generate(
         }
 
         outFiles[path.join(dir, fileName)] = {
-          output: content.fileContents + common
+          output: appendFlowGlobalTypesIfNecessary(
+            content.fileContents,
+            common,
+            options.globalTypesFile
+          )
         };
       });
 
+      createFlowGlobalTypesFileIfNecessary(
+        outFiles,
+        common,
+        options.globalTypesFile
+      );
       writeGeneratedFiles(outFiles, path.resolve("."));
 
       writtenFiles += Object.keys(outFiles).length;
@@ -127,10 +138,19 @@ export default function generate(
     ) {
       generatedFiles.forEach(({ fileName, content }) => {
         outFiles[fileName] = {
-          output: content.fileContents + common
+          output: appendFlowGlobalTypesIfNecessary(
+            content.fileContents,
+            common,
+            options.globalTypesFile
+          )
         };
       });
 
+      createFlowGlobalTypesFileIfNecessary(
+        outFiles,
+        common,
+        options.globalTypesFile
+      );
       writeGeneratedFiles(outFiles, outputPath);
 
       writtenFiles += Object.keys(outFiles).length;
@@ -261,4 +281,32 @@ function writeOperationIdsMap(context: CompilerContext) {
     context.options.operationIdsPath,
     JSON.stringify(operationIdsMap, null, 2)
   );
+}
+
+/* Patch to flow codegen to avoid duplication of global tpyes in every file */
+
+function appendFlowGlobalTypesIfNecessary(
+  content: string,
+  globalTypes: string,
+  globalTypesFile?: string
+) {
+  if (!globalTypesFile) {
+    // No global types file, have to append global types to every file
+    return content + globalTypes;
+  }
+  // A global types file will be created, so no need to append to every file
+  return content;
+}
+
+function createFlowGlobalTypesFileIfNecessary(
+  outFiles: OutFilesType,
+  output: string,
+  globalTypesFile?: string
+) {
+  if (globalTypesFile) {
+    // Put common output into the file
+    outFiles[globalTypesFile] = {
+      output
+    };
+  }
 }
